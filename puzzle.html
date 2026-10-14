@@ -606,30 +606,48 @@ class Solver {
   constructor(puzzle) {
     this.puzzle = puzzle;
     this.dimension = puzzle.dimension;
+    this.transpose(false);
 
     // Which squares are solved (and thus locked).
     this.locked = Array(this.ntiles);
   }
 
+  // Transpose the rows and columns to solve for columns.
+  transpose(transposed) {
+    if (transposed) {
+      this.transposed = true;
+      this.UP = -1;
+      this.DOWN = 1;
+      this.LEFT = -this.dimension;
+      this.RIGHT = this.dimension;
+    } else {
+      this.transposed = false;
+      this.UP = -this.dimension;
+      this.DOWN = this.dimension;
+      this.LEFT = -1;
+      this.RIGHT = 1;
+    }
+  }
+
   // Forwarding methods.
   to_row(pos) {
-    return this.puzzle.to_row(pos);
+    return this.transposed ? this.puzzle.to_col(pos) : this.puzzle.to_row(pos);
   }
 
   to_col(pos) {
-    return this.puzzle.to_col(pos);
+    return this.transposed ? this.puzzle.to_row(pos) : this.puzzle.to_col(pos);
   }
 
   to_pos(row, col) {
-    return this.puzzle.to_pos(row, col);
+    return this.transposed ? this.puzzle.to_pos(col, row) : this.puzzle.to_pos(row, col);
   }
 
   open_row() {
-    return this.puzzle.open_row();
+    return this.transposed ? this.puzzle.open_col() : this.puzzle.open_row();
   }
 
   open_col() {
-    return this.puzzle.open_col();
+    return this.transposed ? this.puzzle.open_row() : this.puzzle.open_col();
   }
 
   find_tile_at(pos) {
@@ -666,14 +684,21 @@ class Solver {
   }
 
   // Solve an NxN sub-puzzle.
-  // For puzzles 3x3 and larger, solve the top row and the top column,
-  // then recursively solve the remaining sub-puzzle.
   async solve_nxn(rowcol, size) {
     if (size == 2) {
+      // Solve the remaining 2x2 sub-puzzle.
       await this.solve_2x2(rowcol);
     } else {
-      await this.solve_row(rowcol, size);
-      await this.solve_col(rowcol, size);
+      // Solve the top row of the sub-puzzle.
+      await this.solve_rowcol(rowcol, size);
+
+      // Transpose the rows and columns and solve the left column
+      // (which is now the top row).
+      this.transpose(true);
+      await this.solve_rowcol(rowcol, size);
+      this.transpose(false);
+
+      // Solve the remaining n-1 x n-1 sub-puzzle.
       await this.solve_nxn(rowcol + 1, size - 1);
     }
   }
@@ -716,46 +741,47 @@ class Solver {
     console.assert(tile1.pos == pos1 && tile2.pos == pos2 && tile3.pos == pos3);
   }
 
-  // Solve for the tiles in one row, starting at given pos.
-  async solve_row(row) {
+  // Solve for the tiles in one row (or column when transposed),
+  // starting at given row.
+  async solve_rowcol(row) {
     let col = row;
-    let pos = this.to_pos(row, col);
 
     // console.log(`**** solve row ${row} ****`);
 
     // Solve for all but the right two squares.
     for (; col < this.dimension - 2; col++) {
+      let pos = this.to_pos(row, col);
       await this.solve_square(pos);
       this.lock(pos);
-      pos += 1;
     }
 
     // Solve for the last two squares.
-    let penultimate_tile = this.find_tile_for(pos);
-    let last_tile = this.find_tile_for(pos + 1);
+    let pos1 = this.to_pos(row, col);
+    let penultimate_tile = this.find_tile_for(pos1);
+    let pos2 = this.to_pos(row, col + 1);
+    let last_tile = this.find_tile_for(pos2);
 
     // console.log(`** solve final two squares in row ${row} **`);
     console.log("Checkpoint: " + this.puzzle.checkpoint());
 
     // Are they both are already in the right place?
-    if (penultimate_tile.pos == pos && last_tile.pos == pos + 1)
+    if (penultimate_tile.pos == pos1 && last_tile.pos == pos2)
       return;
 
-    let last_tile_row = last_tile.row();
-    let last_tile_col = last_tile.col();
+    let last_tile_row = this.to_row(last_tile.pos);
+    let last_tile_col = this.to_col(last_tile.pos);
 
-    // Move last tile out of the top row.
-    if (last_tile_row == row) {
+    // Move last tile below the top two rows.
+    while (last_tile_row <= row + 1) {
       let work_col = (last_tile_col == col) ? col + 1 : col;
       // console.log(`move tile ${last_tile.home} down, work col ${work_col}`);
       await this.move_tile_down(last_tile, work_col);
-      await this.move_tile_down(last_tile, work_col);
-      last_tile_row += 2;
+      last_tile_row += 1;
       // await this.move_open_to_column(work_col);
     }
 
-    let penultimate_tile_row = penultimate_tile.row();
-    let penultimate_tile_col = penultimate_tile.col();
+    let penultimate_tile_row = this.to_row(penultimate_tile.pos);
+    let penultimate_tile_col = this.to_col(penultimate_tile.pos);
 
     // Move next-to-last tile to top row, last column.
     let work_row = (penultimate_tile_row == row + 1) ? penultimate_tile_row + 1 : row + 1;
@@ -775,8 +801,8 @@ class Solver {
       await this.move_open_to_row(row + 1);
     }
 
-    last_tile_row = last_tile.row();
-    last_tile_col = last_tile.col();
+    last_tile_row = this.to_row(last_tile.pos);
+    last_tile_col = this.to_col(last_tile.pos);
 
     console.log("Checkpoint: " + this.puzzle.checkpoint());
 
@@ -798,95 +824,13 @@ class Solver {
     await this.move_tile_up(last_tile, col);
   }
 
-  // Solve for the tiles in one column, starting at given pos.
-  async solve_col(col) {
-    let row = col + 1;
-    let pos = this.to_pos(row, col);
-
-    // console.log(`**** solve column ${col} ****`);
-
-    // Solve for all but the right two squares.
-    for (; row < this.dimension - 2; row++) {
-      await this.solve_square(pos);
-      this.lock(pos);
-      pos += this.dimension;
-    }
-
-    // Solve for the last two squares.
-    let penultimate_tile = this.find_tile_for(pos);
-    let last_tile = this.find_tile_for(pos + this.dimension);
-
-    // console.log(`** solve final two squares in column ${col} **`);
-    console.log("Checkpoint: " + this.puzzle.checkpoint());
-
-    // Are they both are already in the right place?
-    if (penultimate_tile.pos == pos && last_tile.pos == pos + this.dimension)
-      return;
-
-    let last_tile_row = last_tile.row();
-    let last_tile_col = last_tile.col();
-
-    // Move last tile out of the left column.
-    if (last_tile_col == col) {
-      let work_row = (last_tile_row == row) ? row + 1 : row;
-      // console.log(`move tile ${last_tile.home} right, work row ${work_row}`);
-      await this.move_tile_right(last_tile, work_row);
-      await this.move_tile_right(last_tile, work_row);
-      last_tile_col += 2;
-      // await this.move_open_to_row(work_row);
-    }
-
-    let penultimate_tile_row = penultimate_tile.row();
-    let penultimate_tile_col = penultimate_tile.col();
-
-    // Move next-to-last tile to top row, last column.
-    let work_col = (penultimate_tile_col == col + 1) ? penultimate_tile_col + 1 : col + 1;
-    // console.log(`move tile ${penultimate_tile.home} down to row ${row + 1}, work column ${work_col}`);
-    while (penultimate_tile_row < row + 1) {
-      await this.move_tile_down(penultimate_tile, work_col);
-      penultimate_tile_row += 1;
-    }
-    // console.log(`move tile ${penultimate_tile.home} left to column ${col}, work row ${row}`);
-    while (penultimate_tile_col > col) {
-      await this.move_tile_left(penultimate_tile, row);
-      penultimate_tile_col -= 1;
-    }
-
-    // Move open square out of the left column.
-    if (this.open_col() == col) {
-      await this.move_open_to_column(col + 1);
-    }
-
-    last_tile_row = last_tile.row();
-    last_tile_col = last_tile.col();
-
-    console.log("Checkpoint: " + this.puzzle.checkpoint());
-
-    // Move last tile just to the right of it.
-    work_col = (last_tile_col == col + 1) ? last_tile_col + 1 : col + 1;
-    // console.log(`move tile ${last_tile.home} down, work column ${work_col}`);
-    while (last_tile_row < row + 1) {
-      await this.move_tile_down(last_tile, work_col);
-      last_tile_row += 1;
-    }
-    // console.log(`move tile ${last_tile.home} left, work row ${row}`);
-    while (last_tile_col > col + 1) {
-      await this.move_tile_left(last_tile, row);
-      last_tile_col -= 1;
-    }
-
-    // Slide next-to-last tile up and last tile left.
-    await this.move_tile_up(penultimate_tile, col + 1);
-    await this.move_tile_left(last_tile, row);
-  }
-
   // Find the tile for the target square and move it there.
   async solve_square(tgt_pos) {
     let tile = this.find_tile_for(tgt_pos);
     let tgt_row = this.to_row(tgt_pos);
     let tgt_col = this.to_col(tgt_pos);
-    let tile_row = tile.row();
-    let tile_col = tile.col();
+    let tile_row = this.to_row(tile.pos);
+    let tile_col = this.to_col(tile.pos);
     let open_row = this.open_row();
     let open_col = this.open_col();
     // console.log("Checkpoint: " + this.puzzle.checkpoint());
@@ -956,8 +900,8 @@ class Solver {
 
   // Move a tile one square to the right.
   async move_tile_right(tile, work_row) {
-    let tile_row = tile.row();
-    let tile_col = tile.col();
+    let tile_row = this.to_row(tile.pos);
+    let tile_col = this.to_col(tile.pos);
     let open_row = this.open_row();
     let open_col = this.open_col();
 
@@ -985,13 +929,13 @@ class Solver {
     // Open square should now be to the right of the tile in the
     // same row. Slide the tile to the right.
     console.assert(open_row == tile_row && open_col > tile_col);
-    await this.slide_rowcol(tile_row, tile_col, 1);
+    await this.slide_rowcol(tile_row, tile_col, this.RIGHT);
   }
 
   // Move a tile one square to the left.
   async move_tile_left(tile, work_row) {
-    let tile_row = tile.row();
-    let tile_col = tile.col();
+    let tile_row = this.to_row(tile.pos);
+    let tile_col = this.to_col(tile.pos);
     let open_row = this.open_row();
     let open_col = this.open_col();
 
@@ -1032,13 +976,13 @@ class Solver {
     // Open square should now be to the left of the tile in the
     // same row. Slide the tile to the left.
     console.assert(open_row == tile_row && open_col < tile_col);
-    await this.slide_rowcol(tile_row, tile_col, -1);
+    await this.slide_rowcol(tile_row, tile_col, this.LEFT);
   }
 
   // Move a tile one square up.
   async move_tile_up(tile, work_col) {
-    let tile_row = tile.row();
-    let tile_col = tile.col();
+    let tile_row = this.to_row(tile.pos);
+    let tile_col = this.to_col(tile.pos);
     let open_row = this.open_row();
     let open_col = this.open_col();
 
@@ -1079,13 +1023,13 @@ class Solver {
     // Open square should now be above the tile in the
     // same column. Slide it up.
     console.assert(open_col == tile_col && open_row < tile_row);
-    await this.slide_rowcol(tile_row, tile_col, -this.dimension);
+    await this.slide_rowcol(tile_row, tile_col, this.UP);
   }
 
   // Move a tile one square up.
   async move_tile_down(tile, work_col) {
-    let tile_row = tile.row();
-    let tile_col = tile.col();
+    let tile_row = this.to_row(tile.pos);
+    let tile_col = this.to_col(tile.pos);
     let open_row = this.open_row();
     let open_col = this.open_col();
 
@@ -1113,7 +1057,7 @@ class Solver {
     // Open square should now be below the tile in the
     // same column. Slide it down.
     console.assert(open_col == tile_col && open_row > tile_row);
-    await this.slide_rowcol(tile_row, tile_col, this.dimension);
+    await this.slide_rowcol(tile_row, tile_col, this.DOWN);
   }
 
   // Move the open square to given row.
@@ -1123,10 +1067,10 @@ class Solver {
     let openrow = this.open_row();
     let opencol = this.open_col();
     if (openrow < row) {
-      await this.slide_rowcol(row, opencol, -this.dimension);
+      await this.slide_rowcol(row, opencol, this.UP);
     }
     else if (openrow > row) {
-      await this.slide_rowcol(row, opencol, this.dimension);
+      await this.slide_rowcol(row, opencol, this.DOWN);
     }
   }
 
@@ -1137,10 +1081,10 @@ class Solver {
     let openrow = this.open_row();
     let opencol = this.open_col();
     if (opencol < col) {
-      await this.slide_rowcol(openrow, col, -1);
+      await this.slide_rowcol(openrow, col, this.LEFT);
     }
     else if (opencol > col) {
-      await this.slide_rowcol(openrow, col, 1);
+      await this.slide_rowcol(openrow, col, this.RIGHT);
     }
   }
 
