@@ -771,13 +771,12 @@ class Solver {
     let last_tile_row = this.to_row(last_tile.pos);
     let last_tile_col = this.to_col(last_tile.pos);
 
-    // Move last tile out of the top row.
-    if (last_tile_row == row) {
+    // Move last tile below the top two rows.
+    while (last_tile_row <= row + 1) {
       let work_col = (last_tile_col == col) ? col + 1 : col;
       // console.log(`move tile ${last_tile.home} down, work col ${work_col}`);
       await this.move_tile_down(last_tile, work_col);
-      await this.move_tile_down(last_tile, work_col);
-      last_tile_row += 2;
+      last_tile_row += 1;
       // await this.move_open_to_column(work_col);
     }
 
