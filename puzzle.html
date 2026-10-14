@@ -822,6 +822,9 @@ class Solver {
     // Slide next-to-last tile left and last tile up.
     await this.move_tile_left(penultimate_tile, row + 1);
     await this.move_tile_up(last_tile, col);
+
+    this.lock(pos1);
+    this.lock(pos2);
   }
 
   // Find the tile for the target square and move it there.
