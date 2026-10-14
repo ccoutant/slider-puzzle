@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+* {
+  box-sizing: border-box;
+}
+:root {
+  --puzzle-size: min(70vh, 90vw);
+  --tile-size: calc(var(--puzzle-size) / 4);
+  --bevel: 10px;
+  --grid-color: #aaa;
+}
+body {
+  font-family: "Open Sans", sans-serif;
+  font-size: 2vh;
+  margin: 0 auto;
+  padding: 10px;
+}
+.header {
+  height: 6vh;
+  margin-top: 2vh;
+}
+h1 {
+  font-size: 1.5em;
+  text-align: center;
+  margin: 0 auto;
+}
+#puzzle {
+  position: relative;
+  width: var(--puzzle-size);
+  height: var(--puzzle-size);
+  padding: 0;
+  margin: 0 auto;
+  border: 3px solid white;
+}
+#puzzle.dropactive {
+  border-color: green;
+}
+.tile {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--tile-size);
+  height: var(--tile-size);
+  padding: 0;
+  border: 2px solid white;
+  background-repeat: no-repeat;
+  background-image: url("mj-puzzle.jpg");
+  background-color: white;
+  background-position: 0 0;
+  background-origin: content-box;
+  background-size: auto var(--puzzle-size);
+  overflow: hidden;
+  box-shadow: inset 10px 10px 10px 0 rgba(255,255,255,0.5), inset -10px -10px 10px 0 rgba(0,0,0,0.5);
+  border-radius: 10px;
+}
+.tile div {
+  visibility: hidden;
+  padding: 2% 8%;
+  text-align: right;
+  font-size: 5vmin;
+  color: lightyellow;
+}
+.shownums .tile div {
+  visibility: visible;
+}
+#check {
+  position: absolute;
+  visibility: hidden;
+  left: 0;
+  top: 0;
+  width: var(--puzzle-size);
+  height: var(--puzzle-size);
+  color: green;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30vmin;
+  z-index: 1;
+}
+#check::before {
+  content: "\2714";
+}
+.slide {
+  transition-property: top, left;
+  transition-duration: 200ms;
+  transition-timing-function: ease-in-out;
+}
+.fast .slide {
+  transition-duration: 75ms;
+}
+.footer {
+  position: relative;
+  width: var(--puzzle-size);
+  height: 15vh;
+  margin: 1em auto;
+}
+.footer p {
+  margin: 0 0 .5em;
+  font-style: italic;
+  font-size: .9em;
+  text-align: center;
+}
+.buttons {
+  position: absolute;
+  left: 25%;
+  width: 50%;
+  text-align: center;
+  line-height: 1.5;
+}
+.buttons label {
+  font-size: 70%;
+}
+.settings {
+  position: absolute;
+  text-align: right;
+  top: 2.5em;
+  right: 0;
+  height: 1.2em;
+  width: 25%;
+}
+.grid {
+  position: relative;
+  display: inline-block;
+  margin: 0 .2em;
+  height: 100%;
+  aspect-ratio: 1/1;
+  border: 1px solid var(--grid-color);
+  border-top: none;
+  border-left: none;
+  background-color: white;
+  background-image:
+    linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-color) 1px, transparent 1px);
+  cursor: pointer;
+}
+.grid:hover {
+  background-color: #808080;
+}
+#grid3x3 {
+  background-size: 33% 33%;
+}
+#grid4x4 {
+  background-size: 25% 25%;
+}
+#grid5x5 {
+  background-size: 20% 20%;
+}
+</style>
+<script type="text/javascript">
+// Copyright © 2026 Cary Coutant
+var puzzle;
+
+window.onload = function() {
+  let pdiv = document.getElementById("puzzle");
+  puzzle = new Puzzle(4, pdiv);
+  window.addEventListener("resize", function() { puzzle.resize(); });
+  puzzle.resize();
+  let gdiv;
+  gdiv = document.getElementById("grid3x3");
+  gdiv.addEventListener("click", function() { puzzle.redim(3); });
+  gdiv = document.getElementById("grid4x4");
+  gdiv.addEventListener("click", function() { puzzle.redim(4); });
+  gdiv = document.getElementById("grid5x5");
+  gdiv.addEventListener("click", function() { puzzle.redim(5); });
+}
+
+class Puzzle {
+
+  // Initialize the puzzle object and set up the dropzone.
+  constructor(dim, pdiv) {
+    // The div element that holds the tiles.
+    this.pdiv = pdiv;
+
+    // Initialize the puzzle.
+    this.init(dim);
+
+    // Overlay div to show a big green checkmark when puzzle is solved.
+    this.cdiv = document.createElement("div");
+    this.cdiv.id = "check";
+    pdiv.appendChild(this.cdiv);
+
+    // Set up the dropzone to handle user-provided images.
+    let puzzle = this;
+    let dropzone = this.pdiv;
+    dropzone.addEventListener("dragenter", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add("dropactive");
+    });
+    dropzone.addEventListener("dragover", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.add("dropactive");
+    });
+    dropzone.addEventListener("dragleave", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove("dropactive");
+    });
+    dropzone.addEventListener("drop", function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropzone.classList.remove("dropactive");
+        let files = e.dataTransfer.files;
+        puzzle.set_image(files.item(0));
+    });
+  }
+
+  // Initialize the puzzle.
+  init(dim) {
+    // Number of tiles.
+    this.dimension = dim;
+    this.ntiles = dim * dim - 1;
+
+    // Position of the open square.
+    this.openpos = this.ntiles;
+
+    // Aspect ratio for the background image.
+    this.bg_aspect = 1.0;
+
+    // The tiles represent each movable tile in the puzzle.
+    this.tiles = Array(this.ntiles);
+    for (let i = 0; i < this.ntiles; i++) {
+      this.tiles[i] = new Tile(i, this, this.pdiv);
+    }
+  }
+
+  // Return row of a given position
+  to_row(pos) {
+    return Math.floor(pos / this.dimension);
+  }
+  
+  // Return column of a given position
+  to_col(pos) {
+    return pos % this.dimension;
+  }
+
+  // Return printable row and column info.
+  show_row_col(pos) {
+    let row = this.to_row(pos);
+    let col = this.to_row(pos);
+    return "(" + row + ", " + col + ")";
+  }
+
+  // Return position of a given (row,column).
+  to_pos(row, col) {
+    return row * this.dimension + col;
+  }
+
+  // Return open row number.
+  open_row() {
+    return this.to_row(this.openpos);
+  }
+
+  // Return open column number.
+  open_col() {
+    return this.to_col(this.openpos);
+  }
+
+  // Find tile current at given position.
+  find_tile_at(pos) {
+    let tile = this.tiles.find((tile) => tile.pos == pos);
+    console.assert(tile !== undefined, `No tile found at ${this.show_row_col(pos)}`);
+    return tile;
+  }
+
+  // Set the puzzle for fast transitions (e.g., when scrambling).
+  fast() {
+    this.pdiv.classList.add("fast");
+  }
+
+  // Set the puzzle for normal transitions.
+  slow() {
+    this.pdiv.classList.remove("fast");
+  }
+
+  // Redimension the puzzle.
+  redim(dim) {
+    if (dim == this.dimension)
+      return;
+
+    // Remove the current tiles and their divs.
+    this.tiles.forEach((tile) => {
+      this.pdiv.removeChild(tile.tdiv);
+    });
+    
+    // Reinitialize to the new dimension.
+    this.init(dim);
+    this.resize();
+  }
+
+  // Calculate tile sizes and background offsets.
+  // Called on initialization and whenever the viewport resizes.
+  resize() {
+    // Actual width of the puzzle div minus border.
+    let psize = this.pdiv.getBoundingClientRect().width - 6;
+    this.puzzle_size = psize;
+
+    // Size of each tile.
+    let tsize = psize / this.dimension - 1;
+
+    // When the background image isn't square, calculate the
+    // x or y offset necessary to center it.
+    let w = psize, h = psize;
+    this.bg_xoffset = 0;
+    this.bg_yoffset = 0;
+    if (this.bg_aspect > 1.0) {
+      w = psize * this.bg_aspect;
+      this.bg_xoffset = (w - h) / 2;
+    } else {
+      h = psize / this.bg_aspect;
+      this.bg_yoffset = (h - w) / 2;
+    }
+
+    // Resize each individual tile.
+    this.tiles.forEach((tile) =>
+        tile.resize(tsize, this.bg_xoffset, this.bg_yoffset));
+  }
+
+  // Handle a click event on a tile.
+  click(tile) {
+    let row = tile.row();
+    let col = tile.col();
+    let openrow = this.open_row();
+    let opencol = this.open_col();
+    let dir = 0;
+    if (openrow == row)
+      dir = (opencol < col) ? -1 : 1;
+    else if (opencol == col)
+      dir = (openrow < row) ? -this.dimension : this.dimension;
+    if (dir) {
+      this.slide(tile, dir);
+      this.check();
+    }
+  }
+
+  // Slide tile and any intervening tiles.
+  // Open square must be on the same row or column.
+  slide(tile, dir) {
+    let oldpos = tile.pos;
+    let newpos = oldpos + dir;
+    this.slide_intervening_tiles(tile, dir);
+    console.assert(newpos == this.openpos);
+    tile.slide(newpos);
+    this.openpos = oldpos;
+  }
+
+  // Slide tile and wait for transition to finish.
+  async slide_and_wait(tile, dir) {
+    let oldpos = tile.pos;
+    let newpos = oldpos + dir;
+    this.slide_intervening_tiles(tile, dir);
+    console.assert(newpos == this.openpos);
+    await tile.slide_and_wait(newpos);
+    this.openpos = oldpos;
+  }
+
+  // Slide intervening tiles.
+  slide_intervening_tiles(tile, dir) {
+    let oldpos = tile.pos;
+    let newpos = oldpos + dir;
+    while (newpos != this.openpos) {
+      let itile = this.find_tile_at(this.openpos - dir);
+      if (itile === undefined)
+        throw Error(`tile at ${this.show_row_col(oldpos)} not on same row/column as open square`);
+      itile.slide(this.openpos);
+      this.openpos -= dir;
+    }
+  }
+
+  // Display a green check briefly when solved.
+  async check() {
+    if (this.solved()) {
+      let this_puzzle = this;
+      this.cdiv.style.visibility = "visible";
+      await delay(1000);
+      this_puzzle.cdiv.style.visibility = "hidden";
+    }
+  }
+
+  // Check for a solved puzzle.
+  solved() {
+    if (this.openpos != this.ntiles)
+      return false;
+    if (this.tiles.find((tile) => !tile.is_home()))
+      return false;
+    return true;
+  }
+
+  // Scramble the tiles.
+  scramble() {
+    this.fast();
+    // Make 20 random moves, alternating rows and columns.
+    for (let i = 0; i < 10; i++) {
+      let openrow = this.open_row();
+      let opencol = this.open_col();
+      let t = Math.floor(Math.random() * (this.dimension - 1));
+      if (t >= opencol)
+        t += 1;
+      let tile = this.find_tile_at(this.to_pos(openrow, t));
+      this.slide(tile, (t < opencol) ? 1 : -1);
+
+      openrow = this.open_row();
+      opencol = this.open_col();
+      t = Math.floor(Math.random() * (this.dimension - 1));
+      if (t >= openrow)
+        t += 1;
+      tile = this.find_tile_at(this.to_pos(t, opencol));
+      this.slide(tile, (t < openrow) ? this.dimension : -this.dimension);
+    }
+    this.slow();
+  }
+
+  // Reset the puzzle to its original state.
+  reset() {
+    this.tiles.forEach((tile) => tile.reset());
+    this.openpos = this.ntiles;
+    this.bg_aspect = 1.0;
+    if (this.ss)
+      this.ss.replaceSync("");
+    this.resize();
+  }
+
+  // Show or hide tile numbers.
+  show_numbers(cb) {
+    if (cb.checked)
+      this.pdiv.classList.add("shownums");
+    else
+      this.pdiv.classList.remove("shownums");
+  }
+
+  // Replace the background image with a dropped image.
+  async set_image(file) {
+    // console.log("drop: " + file.type);
+    if (file.type.match(/image\/.*/)) {
+
+      // Create a new style sheet if necessary.
+      if (!this.ss) {
+        this.ss = new CSSStyleSheet();
+        document.adoptedStyleSheets.push(this.ss);
+      }
+
+      // Get the image data, load the image, and get its aspect ratio.
+      let data_url = await read_file(file);
+      let img = await load_image(data_url);
+      this.bg_aspect = img.naturalWidth / img.naturalHeight;
+      // console.log(`aspect ratio: ${this.bg_aspect}`);
+
+      // Set CSS rules for the new image.
+      let bgimg = "background-image: url(\"" + data_url + "\"); ";
+      let bgsize = (this.bg_aspect > 1.0 ?
+                    "background-size: auto var(--puzzle-size);" :
+                    "background-size: var(--puzzle-size) auto;"
+                   );
+      // console.log(bgsize);
+      // console.log(`bg_xoffset: ${this.bg_xoffset}`)
+      // console.log(`bg_yoffset: ${this.bg_yoffset}`)
+      this.ss.replaceSync(".tile {" + bgimg + bgsize + "}");
+
+      // Call resize to recalculate background image offsets.
+      this.resize();
+    }
+  }
+
+  // Checkpoint the board.
+  checkpoint() {
+    let digit0 = "0".charCodeAt(0);
+    let letterA = "A".charCodeAt(0);
+    let cp = ""
+    this.tiles.forEach((tile) =>
+        cp += String.fromCharCode(
+            (tile.pos < 26) ? tile.pos + letterA : tile.pos - 26 + digit0));
+    cp += String.fromCharCode(
+        (this.openpos < 26) ? this.openpos + letterA : this.openpos - 26 + digit0);
+    return cp;
+  }
+
+  // Restore from a checkpoint.
+  load_state(cp) {
+    let digit0 = "0".charCodeAt(0);
+    let letterA = "A".charCodeAt(0);
+    for (let i = 0; i < cp.length - 1; i++) {
+      let pos = cp.charCodeAt(i);
+      pos = (pos >= letterA) ? pos - letterA : pos - digit0 + 26;
+      this.tiles[i].setpos(pos, this.tsize);
+    }
+    let openpos = cp.charCodeAt(cp.length - 1);
+    this.openpos = (openpos >= letterA) ? openpos - letterA : openpos - digit0 + 26;
+  }
+}
+
+class Tile {
+  // Initialize a tile.
+  constructor(pos, puzzle, pdiv) {
+    // Home and current positions.
+    this.puzzle = puzzle;
+    this.home = pos;
+    this.pos = pos;
+
+    // Create a div for the tile and attach it to the puzzle div.
+    this.tdiv = document.createElement("div");
+    this.tdiv.className = "tile";
+    let ndiv = document.createElement("div");
+    ndiv.appendChild(document.createTextNode(this.home + 1));
+    this.tdiv.appendChild(ndiv);    
+    pdiv.appendChild(this.tdiv);
+
+    // Register the click handler.
+    let this_tile = this;
+    this.tdiv.addEventListener("click", function(e) {
+      puzzle.click(this_tile);
+    });
+  }
+
+  // Recalculate tile position and background offsets on viewport resize.
+  // Also used for initialization and when changing background images.
+  resize(tsize, xoff, yoff) {
+    this.tsize = tsize;
+
+    // Turn off slide transition when resizing.
+    this.tdiv.classList.remove("slide");
+
+    // Recalculate new size for the tile div.
+    this.tdiv.style.width = tsize + "px";
+    this.tdiv.style.height = tsize + "px";
+
+    // Recalculate new position for the tile div.
+    this.tdiv.style.left = (tsize * this.col()) + "px";
+    this.tdiv.style.top = (tsize * this.row()) + "px";
+
+    // Recalculate background image position.
+    // (Depends on the tile's home, not its current position.)
+    this.tdiv.style.backgroundPosition =
+        (-tsize * this.home_col() - xoff) + "px " +
+        (-tsize * this.home_row() - yoff) + "px";
+  }
+
+  // Return the tile's home row.
+  home_row() {
+    return puzzle.to_row(this.home);
+  }
+  
+  // Return the tile's home column.
+  home_col() {
+    return puzzle.to_col(this.home);
+  }
+
+  // Return the tile's current row.
+  row() {
+    return puzzle.to_row(this.pos);
+  }
+  
+  // Return the tile's current column.
+  col() {
+    return puzzle.to_col(this.pos);
+  }
+
+  // Slide the tile to a new position.
+  slide(newpos) {
+    // Turn on slide transition.
+    this.tdiv.classList.add("slide");
+    this.pos = newpos;
+    let row = puzzle.to_row(newpos);
+    let col = puzzle.to_col(newpos);
+    this.tdiv.style.left = (this.tsize * col) + "px";
+    this.tdiv.style.top = (this.tsize * row) + "px";
+  }
+
+  // Slide the tile and wait until transition finishes.
+  async slide_and_wait(newpos) {
+    this.slide(newpos);
+    await transition_end(this.tdiv);
+  }
+
+  // Reset the tile to its home.
+  // No need to adjust the position of the div -- it gets
+  // repositioned when Puzzle.resize() is called at the end
+  // of Puzzle.reset().
+  reset() {
+    this.pos = this.home;
+  }
+
+  // Return true if the tile is in its home position.
+  is_home() {
+    return this.home == this.pos;
+  }
+
+  // Set the tile to a specific position.
+  setpos(pos) {
+    this.pos = pos;
+
+    // Turn off slide transition when resizing.
+    this.tdiv.classList.remove("slide");
+
+    // Recalculate position for the tile div.
+    this.tdiv.style.left = (this.tsize * this.col()) + "px";
+    this.tdiv.style.top = (this.tsize * this.row()) + "px";
+  }
+}
+
+class Solver {
+  constructor(puzzle) {
+    this.puzzle = puzzle;
+    this.dimension = puzzle.dimension;
+
+    // Which squares are solved (and thus locked).
+    this.locked = Array(this.ntiles);
+  }
+
+  // Forwarding methods.
+  to_row(pos) {
+    return this.puzzle.to_row(pos);
+  }
+
+  to_col(pos) {
+    return this.puzzle.to_col(pos);
+  }
+
+  to_pos(row, col) {
+    return this.puzzle.to_pos(row, col);
+  }
+
+  open_row() {
+    return this.puzzle.open_row();
+  }
+
+  open_col() {
+    return this.puzzle.open_col();
+  }
+
+  find_tile_at(pos) {
+    return this.puzzle.find_tile_at(pos);
+  }
+
+  // Find the tile whose home is pos.
+  find_tile_for(homepos) {
+    console.assert(homepos >= 0 && homepos < this.puzzle.ntiles);
+    return this.puzzle.tiles[homepos];
+  }
+
+  // Unlock all squares.
+  unlock_all() {
+    this.locked.forEach((l) => l = false);
+  }
+
+  // Lock a square.
+  lock(pos) {
+    this.locked[pos] = true;
+  }
+
+  // Test if square is locked.
+  is_locked(pos) {
+    return this.locked[pos];
+  }
+
+  // Solve the puzzle.
+  async solve() {
+    this.unlock_all();
+    await this.solve_nxn(0, this.dimension);
+    if (!this.puzzle.solved())
+      throw Error("failed to solve");
+  }
+
+  // Solve an NxN sub-puzzle.
+  // For puzzles 3x3 and larger, solve the top row and the top column,
+  // then recursively solve the remaining sub-puzzle.
+  async solve_nxn(rowcol, size) {
+    if (size == 2) {
+      await this.solve_2x2(rowcol);
+    } else {
+      await this.solve_row(rowcol, size);
+      await this.solve_col(rowcol, size);
+      await this.solve_nxn(rowcol + 1, size - 1);
+    }
+  }
+
+  // Solve the last 2x2 section of the puzzle.
+  // This should be trivial: just rotate the three remaining tiles
+  // into place.
+  async solve_2x2(start) {
+    // Solve for the three squares at (r,c), (r,c+1), and (r+1,c).
+    let pos1 = this.to_pos(start, start);
+    let pos2 = pos1 + 1;
+    let pos3 = pos1 + this.dimension;
+    let pos4 = pos3 + 1;
+    let tile1 = this.find_tile_for(pos1);
+    let tile2 = this.find_tile_for(pos2);
+    let tile3 = this.find_tile_for(pos3);
+    
+    // If the upper left tile is in the lower right square,
+    // rotate it twice, counter-clockwise if the empty square
+    // is above it.
+    if (tile1.pos == pos4 && this.open_row() == start) {
+      await this.move_tile_up(tile1, start);
+    } else if (tile1.pos == pos4) {
+      await this.move_tile_left(tile1, start);
+    }
+    if (tile1.pos == pos2) {
+      await this.move_tile_left(tile1, start + 1);
+    }
+    if (tile1.pos == pos3) {
+      await this.move_tile_up(tile1, start + 1);
+    }
+
+    // That should leave one move left.
+    if (tile2.pos == pos4) {
+      await this.move_tile_up(tile2, start);
+    } else if (tile3.pos == pos4) {
+      await this.move_tile_left(tile3, start);
+    }
+
+    console.assert(tile1.pos == pos1 && tile2.pos == pos2 && tile3.pos == pos3);
+  }
+
+  // Solve for the tiles in one row, starting at given pos.
+  async solve_row(row) {
+    let col = row;
+    let pos = this.to_pos(row, col);
+
+    // console.log(`**** solve row ${row} ****`);
+
+    // Solve for all but the right two squares.
+    for (; col < this.dimension - 2; col++) {
+      await this.solve_square(pos);
+      this.lock(pos);
+      pos += 1;
+    }
+
+    // Solve for the last two squares.
+    let penultimate_tile = this.find_tile_for(pos);
+    let last_tile = this.find_tile_for(pos + 1);
+
+    // console.log(`** solve final two squares in row ${row} **`);
+    console.log("Checkpoint: " + this.puzzle.checkpoint());
+
+    // Are they both are already in the right place?
+    if (penultimate_tile.pos == pos && last_tile.pos == pos + 1)
+      return;
+
+    let last_tile_row = last_tile.row();
+    let last_tile_col = last_tile.col();
+
+    // Move last tile out of the top row.
+    if (last_tile_row == row) {
+      let work_col = (last_tile_col == col) ? col + 1 : col;
+      // console.log(`move tile ${last_tile.home} down, work col ${work_col}`);
+      await this.move_tile_down(last_tile, work_col);
+      await this.move_tile_down(last_tile, work_col);
+      last_tile_row += 2;
+      // await this.move_open_to_column(work_col);
+    }
+
+    let penultimate_tile_row = penultimate_tile.row();
+    let penultimate_tile_col = penultimate_tile.col();
+
+    // Move next-to-last tile to top row, last column.
+    let work_row = (penultimate_tile_row == row + 1) ? penultimate_tile_row + 1 : row + 1;
+    // console.log(`move tile ${penultimate_tile.home} right to column ${col + 1}, work row ${work_row}`);
+    while (penultimate_tile_col < col + 1) {
+      await this.move_tile_right(penultimate_tile, work_row);
+      penultimate_tile_col += 1;
+    }
+    // console.log(`move tile ${penultimate_tile.home} up to row ${row}, work column ${col}`);
+    while (penultimate_tile_row > row) {
+      await this.move_tile_up(penultimate_tile, col);
+      penultimate_tile_row -= 1;
+    }
+
+    // Move open square out of the top row.
+    if (this.open_row() == row) {
+      await this.move_open_to_row(row + 1);
+    }
+
+    last_tile_row = last_tile.row();
+    last_tile_col = last_tile.col();
+
+    console.log("Checkpoint: " + this.puzzle.checkpoint());
+
+    // Move last tile just below it.
+    work_row = (last_tile_row == row + 1) ? last_tile_row + 1 : row + 1;
+    // console.log(`move tile ${last_tile.home} right, work row ${work_row}`);
+    while (last_tile_col < col + 1) {
+      await this.move_tile_right(last_tile, work_row);
+      last_tile_col += 1;
+    }
+    // console.log(`move tile ${last_tile.home} up, work column ${col}`);
+    while (last_tile_row > row + 1) {
+      await this.move_tile_up(last_tile, col);
+      last_tile_row -= 1;
+    }
+
+    // Slide next-to-last tile left and last tile up.
+    await this.move_tile_left(penultimate_tile, row + 1);
+    await this.move_tile_up(last_tile, col);
+  }
+
+  // Solve for the tiles in one column, starting at given pos.
+  async solve_col(col) {
+    let row = col + 1;
+    let pos = this.to_pos(row, col);
+
+    // console.log(`**** solve column ${col} ****`);
+
+    // Solve for all but the right two squares.
+    for (; row < this.dimension - 2; row++) {
+      await this.solve_square(pos);
+      this.lock(pos);
+      pos += this.dimension;
+    }
+
+    // Solve for the last two squares.
+    let penultimate_tile = this.find_tile_for(pos);
+    let last_tile = this.find_tile_for(pos + this.dimension);
+
+    // console.log(`** solve final two squares in column ${col} **`);
+    console.log("Checkpoint: " + this.puzzle.checkpoint());
+
+    // Are they both are already in the right place?
+    if (penultimate_tile.pos == pos && last_tile.pos == pos + this.dimension)
+      return;
+
+    let last_tile_row = last_tile.row();
+    let last_tile_col = last_tile.col();
+
+    // Move last tile out of the left column.
+    if (last_tile_col == col) {
+      let work_row = (last_tile_row == row) ? row + 1 : row;
+      // console.log(`move tile ${last_tile.home} right, work row ${work_row}`);
+      await this.move_tile_right(last_tile, work_row);
+      await this.move_tile_right(last_tile, work_row);
+      last_tile_col += 2;
+      // await this.move_open_to_row(work_row);
+    }
+
+    let penultimate_tile_row = penultimate_tile.row();
+    let penultimate_tile_col = penultimate_tile.col();
+
+    // Move next-to-last tile to top row, last column.
+    let work_col = (penultimate_tile_col == col + 1) ? penultimate_tile_col + 1 : col + 1;
+    // console.log(`move tile ${penultimate_tile.home} down to row ${row + 1}, work column ${work_col}`);
+    while (penultimate_tile_row < row + 1) {
+      await this.move_tile_down(penultimate_tile, work_col);
+      penultimate_tile_row += 1;
+    }
+    // console.log(`move tile ${penultimate_tile.home} left to column ${col}, work row ${row}`);
+    while (penultimate_tile_col > col) {
+      await this.move_tile_left(penultimate_tile, row);
+      penultimate_tile_col -= 1;
+    }
+
+    // Move open square out of the left column.
+    if (this.open_col() == col) {
+      await this.move_open_to_column(col + 1);
+    }
+
+    last_tile_row = last_tile.row();
+    last_tile_col = last_tile.col();
+
+    console.log("Checkpoint: " + this.puzzle.checkpoint());
+
+    // Move last tile just to the right of it.
+    work_col = (last_tile_col == col + 1) ? last_tile_col + 1 : col + 1;
+    // console.log(`move tile ${last_tile.home} down, work column ${work_col}`);
+    while (last_tile_row < row + 1) {
+      await this.move_tile_down(last_tile, work_col);
+      last_tile_row += 1;
+    }
+    // console.log(`move tile ${last_tile.home} left, work row ${row}`);
+    while (last_tile_col > col + 1) {
+      await this.move_tile_left(last_tile, row);
+      last_tile_col -= 1;
+    }
+
+    // Slide next-to-last tile up and last tile left.
+    await this.move_tile_up(penultimate_tile, col + 1);
+    await this.move_tile_left(last_tile, row);
+  }
+
+  // Find the tile for the target square and move it there.
+  async solve_square(tgt_pos) {
+    let tile = this.find_tile_for(tgt_pos);
+    let tgt_row = this.to_row(tgt_pos);
+    let tgt_col = this.to_col(tgt_pos);
+    let tile_row = tile.row();
+    let tile_col = tile.col();
+    let open_row = this.open_row();
+    let open_col = this.open_col();
+    // console.log("Checkpoint: " + this.puzzle.checkpoint());
+    // console.log(`** move tile ${tile.home} to (${tgt_row}, ${tgt_col}) **`);
+    // console.log(`- tile at (${tile_row}, ${tile_col})`);
+    // console.log(`- open at (${open_row}, ${open_col})`);
+    
+    if (tile.pos == tgt_pos)
+      return;
+
+    // Case 1: Tile is below and to the left of the target square.
+    // Slide it right to the target column.
+    if (tile_col < tgt_col) {
+      // Find a work row for moving the open square
+      // that doesn't contain any solved squares or the
+      // tile we want to move.
+      let work_row = (open_row > tgt_row) ? open_row : tgt_row + 1;
+      if (work_row == tile_row)
+        work_row += 1;
+      // console.log(`move tile ${tile.home} right using work row ${work_row}`);
+      while (tile_col < tgt_col) {
+        await this.move_tile_right(tile, work_row);
+        tile_col += 1;
+      }
+      open_row = this.open_row();
+      open_col = this.open_col();
+    }
+
+    // Case 2: Tile is to the right of the target square,
+    // on a row above it.
+    if (tile_row < tgt_row && tile_col > tgt_col) {
+      // console.log(`move tile ${tile.home} down using work column ${tgt_col}`);
+      while (tile_row < tgt_row) {
+        await this.move_tile_down(tile, tgt_col);
+        tile_row += 1;
+      }
+      open_row = this.open_row();
+      open_col = this.open_col();
+    }
+
+    // Case 3: Tile is to the right of the target square,
+    // on the same row or below it.
+    if (tile_row >= tgt_row && tile_col > tgt_col) {
+      let work_row = (tile_row == tgt_row) ? tgt_row + 1 : tgt_row;
+      // console.log(`move tile ${tile.home} left using work row ${work_row}`);
+      while (tile_col > tgt_col) {
+        await this.move_tile_left(tile, work_row);
+        tile_col -= 1;
+      }
+      open_row = this.open_row();
+      open_col = this.open_col();
+    }
+
+    // Case 4: Tile is directly below the target square.
+    if (tile_row > tgt_row && tile_col == tgt_col) {
+      // console.log(`move tile ${tile.home} up using work column ${tgt_col + 1}`);
+      while (tile_row > tgt_row) {
+        await this.move_tile_up(tile, tgt_col + 1);
+        tile_row -= 1;
+      }
+      open_row = this.open_row();
+      open_col = this.open_col();
+    }
+
+    console.assert(tile.pos == tgt_pos);
+  }
+
+  // Move a tile one square to the right.
+  async move_tile_right(tile, work_row) {
+    let tile_row = tile.row();
+    let tile_col = tile.col();
+    let open_row = this.open_row();
+    let open_col = this.open_col();
+
+    // If open square is to the left of the tile in the same row,
+    // move it to the work row.
+    if (open_row == tile_row && open_col < tile_col) {
+      await this.move_open_to_row(work_row);
+      open_row = work_row;
+    }
+
+    // If open square is to the left of the tile in a different row,
+    // move it to the column to the right of the tile.
+    if (open_row != tile_row && open_col <= tile_col) {
+      await this.move_open_to_column(tile_col + 1);
+      open_col = tile_col + 1;
+    }
+
+    // If open square is to the right of the tile in a different row,
+    // move it to the same row as the tile.
+    if (open_row != tile_row && open_col > tile_col) {
+      await this.move_open_to_row(tile_row);
+      open_row = tile_row;
+    }
+
+    // Open square should now be to the right of the tile in the
+    // same row. Slide the tile to the right.
+    console.assert(open_row == tile_row && open_col > tile_col);
+    await this.slide_rowcol(tile_row, tile_col, 1);
+  }
+
+  // Move a tile one square to the left.
+  async move_tile_left(tile, work_row) {
+    let tile_row = tile.row();
+    let tile_col = tile.col();
+    let open_row = this.open_row();
+    let open_col = this.open_col();
+
+    // If open square is directly above the tile but not in the work row,
+    // move it to the column to the right of the tile (or, if the tile is
+    // in the last column, to the first column to the left).
+    if (open_row < tile_row && open_col == tile_col && open_row != work_row) {
+      let work_col = (tile_col + 1 >= this.dimension) ? tile_col - 1 : tile_col + 1;
+      await this.move_open_to_column(work_col);
+      open_col = work_col;
+    }
+
+    // If open square is to the right of the tile in the same row or
+    // a row above, move it to the work row.
+    if (open_row <= tile_row && open_col > tile_col) {
+      await this.move_open_to_row(work_row);
+      open_row = work_row;
+    }
+
+    // If open square is to the right of the tile in a different row,
+    // move it to the column to the left of the tile.
+    if (open_row != tile_row && open_col >= tile_col) {
+      await this.move_open_to_column(tile_col - 1);
+      open_col = tile_col - 1;
+    }
+
+    // If open square is to the left of the tile in a different row,
+    // move it to the same row as the tile.
+    if (open_row != tile_row && open_col < tile_col) {
+      if (open_col < tile_col - 1) {
+        await this.move_open_to_column(tile_col - 1);
+        open_col = tile_col - 1;
+      }
+      await this.move_open_to_row(tile_row);
+      open_row = tile_row;
+    }
+
+    // Open square should now be to the left of the tile in the
+    // same row. Slide the tile to the left.
+    console.assert(open_row == tile_row && open_col < tile_col);
+    await this.slide_rowcol(tile_row, tile_col, -1);
+  }
+
+  // Move a tile one square up.
+  async move_tile_up(tile, work_col) {
+    let tile_row = tile.row();
+    let tile_col = tile.col();
+    let open_row = this.open_row();
+    let open_col = this.open_col();
+
+    // If open square is to the left of the tile but not in the work column,
+    // move it to the row below the tile (or, if the tile is in the last
+    // row, to the first row above it).
+    if (open_col < tile_col && open_row == tile_row && open_col != work_col) {
+      let work_row = (tile_row + 1 >= this.dimension) ? tile_row - 1 : tile_row + 1;
+      await this.move_open_to_row(work_row);
+      open_row = work_row;
+    }
+
+    // If open square is below the tile in the same column or
+    // in a column to the left, move it to the work column.
+    if (open_col <= tile_col && open_row > tile_row) {
+      await this.move_open_to_column(work_col);
+      open_col = work_col;
+    }
+
+    // If open square is below the tile in a different column,
+    // move it to the row above the tile.
+    if (open_col != tile_col && open_row >= tile_row) {
+      await this.move_open_to_row(tile_row - 1);
+      open_row = tile_row - 1;
+    }
+
+    // If open square is above the tile in a different column,
+    // move it to the same column as the tile.
+    if (open_col != tile_col && open_row < tile_row) {
+      if (open_row < tile_row - 1) {
+        await this.move_open_to_row(tile_row - 1);
+        open_row = tile_row - 1;
+      }
+      await this.move_open_to_column(tile_col);
+      open_col = tile_col;
+    }
+
+    // Open square should now be above the tile in the
+    // same column. Slide it up.
+    console.assert(open_col == tile_col && open_row < tile_row);
+    await this.slide_rowcol(tile_row, tile_col, -this.dimension);
+  }
+
+  // Move a tile one square up.
+  async move_tile_down(tile, work_col) {
+    let tile_row = tile.row();
+    let tile_col = tile.col();
+    let open_row = this.open_row();
+    let open_col = this.open_col();
+
+    // If open square is above the tile in the same column,
+    // move it to the work column.
+    if (open_col == tile_col && open_row < tile_row) {
+      await this.move_open_to_column(work_col);
+      open_col = work_col;
+    }
+
+    // If open square is above the tile in a different column,
+    // move it to the row below the tile.
+    if (open_col != tile_col && open_row <= tile_row) {
+      await this.move_open_to_row(tile_row + 1);
+      open_row = tile_row + 1;
+    }
+
+    // If open square is below the tile in a different column,
+    // move it to the same column as the tile.
+    if (open_col != tile_col && open_row > tile_row) {
+      await this.move_open_to_column(tile_col);
+      open_col = tile_col;
+    }
+
+    // Open square should now be below the tile in the
+    // same column. Slide it down.
+    console.assert(open_col == tile_col && open_row > tile_row);
+    await this.slide_rowcol(tile_row, tile_col, this.dimension);
+  }
+
+  // Move the open square to given row.
+  async move_open_to_row(row) {
+    if (row < 0 || row >= this.dimension)
+      throw Error("move_open_to_row", row);
+    let openrow = this.open_row();
+    let opencol = this.open_col();
+    if (openrow < row) {
+      await this.slide_rowcol(row, opencol, -this.dimension);
+    }
+    else if (openrow > row) {
+      await this.slide_rowcol(row, opencol, this.dimension);
+    }
+  }
+
+  // Move the open square to given column.
+  async move_open_to_column(col) {
+    if (col < 0 || col >= this.dimension)
+      throw Error("move_open_to_column", col);
+    let openrow = this.open_row();
+    let opencol = this.open_col();
+    if (opencol < col) {
+      await this.slide_rowcol(openrow, col, -1);
+    }
+    else if (opencol > col) {
+      await this.slide_rowcol(openrow, col, 1);
+    }
+  }
+
+  // Slide a tile given the row and column.
+  async slide_rowcol(row, col, dir) {
+    let pos = this.to_pos(row, col);
+    if (this.is_locked(pos)) {
+      throw Error(`Attempt to move locked tile at (${row}, ${col})`);
+    } else {
+      let tile = this.find_tile_at(pos);
+      await this.puzzle.slide_and_wait(tile, dir);
+    }
+  }
+}
+
+// Delay for t microseconds.
+async function delay(t) {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve();
+    }, t);
+  });
+}
+
+async function transition_end(elem) {
+  return new Promise((resolve) => {
+    elem.addEventListener("transitionend", () => {
+      resolve();
+    }, { once: true });
+  });
+}
+
+// Read a file and return a data URL.
+function read_file(file) {
+  return new Promise((resolve, reject) => {
+    let reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerrror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// Load the image from the data URL.
+function load_image(data_url) {
+  return new Promise((resolve, reject) => {
+    let img = document.createElement("img");
+    img.addEventListener("load", function () {
+        resolve(img);
+    });
+    img.src = data_url;
+  });
+}
+
+function scramble() {
+  puzzle.scramble();
+}
+
+async function solve() {
+  solver = new Solver(puzzle);
+  try {
+    await solver.solve();
+  }
+  catch (err) {
+    console.log("Failed to solve puzzle: ", err);
+    alert("Oops! Couldn't solve puzzle!");
+  }
+}
+
+async function selftest(n) {
+  let npass = 0;
+  let nfail = 0;
+  solver = new Solver(puzzle);
+  failure_checkpoints = [];
+  for (let i = 1; i <= n; i++) {
+    await puzzle.scramble();
+    let checkpoint = puzzle.checkpoint();
+    console.log(`Starting test run #${i}`);
+    try {
+      // puzzle.fast();
+      await solver.solve();
+      npass += 1;
+    }
+    catch (err) {
+      failure_checkpoints.push(checkpoint);
+      nfail += 1;
+    }
+  }
+  console.log(`Completed ${n} test runs: ${npass} passed, ${nfail} failed`);
+  if (nfail) {
+    console.log("Failing checkpoints:");
+    failure_checkpoints.forEach((cp) => console.log(cp));
+  }
+}
+// Failure checkpoints:
+// FCGDMNKHEAPJIOLB => ABCDEMLGJFPKNOHI
+</script>
+</head>
+<body>
+<div class="header">
+<h1>Games People Play</h1>
+</div>
+<div id="puzzle"></div>
+<div class="footer">
+  <p>Click a tile to slide it</p>
+  <div class="buttons">
+  <button onclick="scramble();">Scramble</button>
+  <button onclick="solve();">Solve</button>
+  <button onclick="puzzle.reset();">Reset</button>
+  <br>
+  <input id="shownums" type="checkbox" onchange="puzzle.show_numbers(this);" />
+  <label for="shownums">Show Numbers</label>
+  </div>
+  <div class="settings">
+    <div class="grid" id="grid3x3"></div>
+    <div class="grid" id="grid4x4"></div>
+    <div class="grid" id="grid5x5"></div>
+  </div>
+</div>
+</body>
+</html>
